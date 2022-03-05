@@ -1,0 +1,296 @@
+---
+output:
+  html_document: default
+  word_document: default
+---
+
+---
+```{r}
+##Problem Statement
+
+# ##Loan Smart is a lending advisory firm. Based on their client’s characteristic and needed loan amount they
+# advise them on which Financial Institution to apply for loan at. So far their recommendations have been
+# based hunches business experience. Now they are trying to leverage power of data that they have collected so
+# far.
+# They want to check whether given their client’s characteristics , they can predict how much interest rates
+# they will be offered by various financial institution. They want to run with proof of concept for this idea.
+# They have given us data collected for one such financial institution ABC Capitals Ltd.
+# What we need to do is to figure out whether using that data we can predict interest rate offered to client. We
+# have developed the problem the way you’d encounter problems in projects. You are given training data and
+# testing data, testing data doesnt have response values. We’ll eventually want to make prediction on this data
+# where the response is unknown.
+```
+```{r}
+## Loading Packages
+```
+```{r}
+library(ggplot2)
+library(dplyr)
+library(corrplot)
+library(corrplot)
+```
+```{r}
+## Importing The Data
+
+ld_train=read.csv("E:\\Data science\\R\\Additional Datasets (1)\\Additional Datasets\\loan_data_train (1).csv")
+ld_test=read.csv("E:\\Data science\\R\\Additional Datasets (1)\\Additional Datasets\\loan_data_test (1).csv")
+```
+```{r}
+## Data Size and Structure
+
+dim(ld_train)
+```
+```{r}
+glimpse(ld_train)
+```
+
+
+```{r}
+glimpse(ld_test)
+```
+
+```{r}
+##Getting rid of the IDs but keeping the test IDs in a vector. These are needed to compose the submission file
+test_lebels=ld_test$ID
+```
+
+```{r}
+## adding response column in test dataset to combine both test and train data
+```
+```{r}
+ld_test$Interest.Rate=NA
+
+ld_train$data="Train"
+ld_test$data="Test"
+```
+
+
+```{r}
+ld_all=rbind(ld_train,ld_test)
+```
+
+```{r}
+## Exploring some of the most important variables
+```
+```{r}
+##Response variable :IntereseRate
+```
+
+```{r}
+ld_all=ld_all %>% mutate(Interest.Rate=as.numeric(gsub("%","",Interest.Rate)))
+  
+```
+```{r}
+ggplot(data=ld_all[!is.na(ld_all$Interest.Rate),],aes(x=Interest.Rate))+
+  geom_histogram(fill="blue")+scale_x_continuous(breaks=seq(0,25,by=1))
+
+
+```
+
+```{r}
+summary(ld_all$Interest.Rate)
+```
+```{r}
+### Data Prep
+```
+```{r}
+ld_all=ld_all %>% 
+  mutate(Amount.Requested=as.numeric(Amount.Requested),
+         Debt.To.Income.Ratio=as.numeric(gsub("%","",Debt.To.Income.Ratio)),
+        Amount.Funded.By.Investors=as.numeric(Amount.Funded.By.Investors),
+        Open.CREDIT.Lines=as.numeric(Open.CREDIT.Lines),
+        Revolving.CREDIT.Balance=as.numeric(Revolving.CREDIT.Balance))
+```
+```{r}
+glimpse(ld_all)
+```
+```{r}
+ld_all=ld_all %>% mutate(f1=as.numeric(substr(FICO.Range,1,3)),
+                         f2=as.numeric(substr(FICO.Range,5,7)),
+                         fico=0.5*(f1+f2)) %>% 
+                          select(-FICO.Range,-f1,-f2)
+                         
+```
+```{r}
+glimpse(ld_all)
+```
+```{r}
+table(ld_all$Employment.Length)
+```
+```{r}
+ld_all %>% 
+  group_by(Employment.Length) %>% 
+  summarise(avg_IR=mean(Interest.Rate,na.rm = T))
+```
+```{r}
+ld_all=ld_all %>% mutate(el=ifelse(substr(Employment.Length,1,2)=="10",10,Employment.Length),
+                         el=ifelse(substr(Employment.Length,1,1)=="<",1,el),
+                         el=gsub("years","",el),
+                         el=gsub("year","",el),
+                         el=as.numeric(el)) %>% 
+  select(-Employment.Length)
+```
+```{r}
+glimpse(ld_all)
+```
+```{r}
+table(ld_all$Loan.Length)
+
+```
+```{r}
+ld_all =ld_all %>% mutate(ll_36=as.numeric(Loan.Length=="36 months")) %>% 
+  select(-Loan.Length)
+  
+```
+```{r}
+### Corelation with Response Variable
+```
+
+```{r}
+numVar=ld_all[which(sapply(ld_all,is.numeric))]
+numVarNames=names(numVar)
+numVarNames
+```
+```{r}
+cat(" There are ",length(numVarNames)," Numeric Variables")
+```
+
+```{r}
+cor_numVar=cor(numVar, use="pairwise.complete.obs")
+corrplot(cor_numVar)
+```
+
+```{r}
+cor_sorted=as.matrix(sort(cor_numVar[,"Interest.Rate"],decreasing = TRUE))
+cor_sorted
+```
+```{r}
+cor_high=names(which(apply(cor_sorted, 1, function(x) abs(x)>0.5)))
+#select only high corelations
+
+cor_high
+```
+```{r}
+corrplot.mixed(cor_numVar, tl.col="black", tl.pos = "lt")
+```
+
+```{r}
+# The variable Amount_Funded_By_Investors happens to have high correlation with Interest.Rate [our target],
+# but we should still drop this variables because it contains information which will not be available at the time
+# when we need to use this model.
+```
+```{r}
+ld_all$Amount.Funded.By.Investors=NULL
+```
+```{r}
+ggplot(data=ld_all[!is.na(ld_all$Interest.Rate),],aes(x=factor(fico),y=Interest.Rate))+geom_boxplot()
+```
+
+```{r}
+ggplot(data=ld_all[!is.na(ld_all$Interest.Rate),],aes(x=factor(fico),y=Interest.Rate))+geom_point()
+```
+
+```{r}
+### Handling categorical Variable
+```
+```{r}
+table(ld_all$Loan.Purpose)
+```
+```{r}
+round(tapply(ld_all$Interest.Rate,ld_all$Loan.Purpose,mean,na.rm=T))
+```
+
+```{r}
+# we’ll combine categories into new one which have similar reponse rate as per the table obtained abvoe and
+# make dummies for them as well while we are at it.
+
+```
+```{r}
+ld_all=ld_all %>%
+mutate(lp_10=as.numeric(Loan.Purpose=='educational'),
+lp_11=as.numeric(Loan.Purpose %in% c("major_purchase","medical","car")),
+lp_12=as.numeric(Loan.Purpose %in% c("vacation","wedding","home_improvement")),
+lp_13=as.numeric(Loan.Purpose %in% c("other","small_business","credit_card")),
+lp_14=as.numeric(Loan.Purpose %in% c("debt_consolidation","house","moving"))) %>%
+select(-Loan.Purpose)
+```
+```{r}
+glimpse(ld_all)
+```
+```{r}
+## Custom Fuction for creating dummy variables
+
+CreateDummies=function(data,var,freq_cutoff=0){
+t=table(data[,var])
+t=t[t>freq_cutoff]
+t=sort(t)
+categories=names(t)[-1]
+for( cat in categories){
+name=paste(var,cat,sep="_")
+name=gsub(" ","",name)
+name=gsub("-","_",name)
+name=gsub("\\?","Q",name)
+name=gsub("<","LT_",name)
+name=gsub("\\+","",name)
+data[,name]=as.numeric(data[,var]==cat)
+}
+data[,var]=NULL
+return(data)
+}
+
+```
+```{r}
+NAcol=which(colSums(is.na(ld_all))>0)
+sort(colSums(sapply(ld_all[NAcol],is.na)),decreasing = T)
+```
+```{r}
+#It doesnt make sense to keep an observation with a missing ID, we’ll filter that
+ld_all=ld_all[!is.na(ld_all$ID),]
+```
+
+
+```{r}
+glimpse(ld_all)
+
+```
+```{r}
+```
+
+
+```{r}
+sort(table(ld_all$State),decreasing = T)
+
+```
+
+```{r}
+for(col in c("State","Home.Ownership")){
+ld_all=CreateDummies(ld_all,col,100)
+}
+```
+
+```{r}
+for(col in names(ld_all)){
+if(sum(is.na(ld_all[,col]))>0 & !(col %in% c("ID","data","Interest.Rate"))){
+ld_all[is.na(ld_all[,col]),col]=mean(ld_all[ld_all$data=="Train",col],na.rm=T)
+}
+}
+```
+
+
+```{r}
+ld_train=ld_all %>% filter(data=='train') %>% select(-data)
+ld_test=ld_all %>% filter(data=='test') %>% select(-data,-Interest.Rate)
+
+```
+
+```{r}
+set.seed(2)
+s=sample(1:nrow(ld_train),0.7*nrow(ld_train))
+ld_train1=ld_train[s,]
+ld_train2=ld_train[-s,]
+
+```
+```{r}
+
+```
+
